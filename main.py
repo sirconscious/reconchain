@@ -1,6 +1,7 @@
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
 from langchain.tools import tool
+import subprocess
 
 # ── System Prompt ──────────────────────────────────────────────
 SYSTEM_PROMPT = """
@@ -21,12 +22,11 @@ You follow a structured web pentest workflow:
 4. Post-Exploitation  → chaining vulnerabilities, privilege escalation
 5. Reporting          → clear, technical, reproducible findings
 
-## TOOLS YOU MASTER
-- Recon & OSINT   : Shodan, theHarvester, Amass, subfinder, whois, Google Dorks
-- Web Proxies     : Burp Suite Pro, OWASP ZAP (intercept, scan, intruder, repeater)
-- Injection       : SQLMap, manual SQLi, XSS payloads, SSTI, XXE, SSRF
-- API Security    : Postman, ffuf, arjun, JWT attacks, BOLA/BFLA, mass assignment
-- Misc            : Nikto, Nuclei, wfuzz, curl, httpx
+## AVAILABLE TOOLS
+- get_nmap_scan      → port/service scan
+- get_whois          → domain registration info
+- get_http_headers   → fingerprint web server & tech stack
+- get_robots_txt     → discover hidden paths and directories
 
 ## RESPONSE STYLE
 - Be direct and technical.
@@ -37,28 +37,86 @@ You follow a structured web pentest workflow:
 You only operate on systems where explicit written authorization has been granted.
 """
 
-# ── Tool Definition ────────────────────────────────────────────
-@tool
-def get_basic_nmap_scan_results(url: str) -> str:
-    """Get basic nmap scan results for a given URL."""
-    return f"Basic nmap scan results for {url}: [PORT OPEN] 22/tcp open ssh, 80/tcp open http"
+# ── Helpers ────────────────────────────────────────────────────
+def extract_domain(url: str) -> str:
+    return url.replace("https://", "").replace("http://", "").split("/")[0]
 
-# ── Init model separately first ────────────────────────────────
+# ── Tools ──────────────────────────────────────────────────────
+@tool
+def get_nmap_scan(url: str) -> str:
+    """Run nmap to discover open ports and services on a target."""
+    try:
+        domain = extract_domain(url)
+        result = subprocess.run(
+            ["nmap", "-sV", "-T4", "--top-ports", "100", domain],
+            capture_output=True, text=True, timeout=60
+        )
+        return result.stdout or result.stderr
+    except FileNotFoundError:
+        return "nmap not installed. Run: sudo dnf install nmap"
+    except subprocess.TimeoutExpired:
+        return "nmap scan timed out."
+
+@tool
+def get_whois(url: str) -> str:
+    """Run WHOIS lookup to get domain registration and ownership info."""
+    try:
+        domain = extract_domain(url)
+        result = subprocess.run(
+            ["whois", domain],
+            capture_output=True, text=True, timeout=30
+        )
+        return result.stdout[:2000]  # trim long output
+    except FileNotFoundError:
+        return "whois not installed. Run: sudo dnf install whois"
+    except subprocess.TimeoutExpired:
+        return "whois timed out."
+
+@tool
+def get_http_headers(url: str) -> str:
+    """Fetch HTTP response headers to fingerprint web server and tech stack."""
+    try:
+        result = subprocess.run(
+            ["curl", "-I", "-L", "--max-time", "10", url],
+            capture_output=True, text=True, timeout=15
+        )
+        return result.stdout or result.stderr
+    except FileNotFoundError:
+        return "curl not installed."
+    except subprocess.TimeoutExpired:
+        return "curl timed out."
+
+@tool
+def get_robots_txt(url: str) -> str:
+    """Fetch robots.txt to discover hidden paths and directories."""
+    try:
+        base = url.rstrip("/")
+        result = subprocess.run(
+            ["curl", "-s", "--max-time", "10", f"{base}/robots.txt"],
+            capture_output=True, text=True, timeout=15
+        )
+        return result.stdout or "robots.txt not found."
+    except FileNotFoundError:
+        return "curl not installed."
+    except subprocess.TimeoutExpired:
+        return "curl timed out."
+
+# ── Model ──────────────────────────────────────────────────────
 model = init_chat_model(
-    "llama3.2",
-    model_provider="ollama",    
+    "qwen2.5:7b",
+    model_provider="ollama",
 )
 
-# ── Create Agent ───────────────────────────────────────────────
+# ── Agent ──────────────────────────────────────────────────────
 agent = create_agent(
-    model=model,                 
-    tools=[get_basic_nmap_scan_results],
+    model=model,
+    tools=[get_nmap_scan, get_whois, get_http_headers, get_robots_txt],
     system_prompt=SYSTEM_PROMPT,
 )
 
 # ── Run ────────────────────────────────────────────────────────
 result = agent.invoke({
-    "messages": [{"role": "user", "content": "I have a target at http://testphp.vulnweb.com — where do I start?"}]
+    "messages": [{"role": "user", "content": "I have a target at https://sberdiltek.com — where do I start?"}]
 })
 
 print(result["messages"][-1].content)
