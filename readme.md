@@ -1,79 +1,103 @@
-# reconchain
+```
+ ██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗ ██████╗██╗  ██╗ █████╗ ██╗███╗   ██╗
+ ██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║██╔════╝██║  ██║██╔══██╗██║████╗  ██║
+ ██████╔╝█████╗  ██║     ██║   ██║██╔██╗ ██║██║     ███████║███████║██║██╔██╗ ██║
+ ██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║██║     ██╔══██║██╔══██║██║██║╚██╗██║
+ ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║╚██████╗██║  ██║██║  ██║██║██║ ╚████║
+ ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
+```
+> AI-powered web reconnaissance agent — fully local, no API keys, no cloud.
 
-AI-powered web reconnaissance agent built with LangChain and Ollama. Runs fully local — no API keys, no cloud.
+---
 
-## Demo
+## How it works
+
+Give it a target. It autonomously chains recon tools together, reasons about the results, and maps the attack surface — the same way a pentester would.
 
 ```
 $ python3 main.py
-Target: https://sberdiltek.com
 
-[*] Running nmap scan...
-[*] Fetching HTTP headers...
-[*] Running WHOIS lookup...
-[*] Fetching robots.txt...
+Target URL: https://target.com
 
-### Reconnaissance Phase
-- Port 80/tcp open (HTTP)
-- Port 443/tcp open (HTTPS)
-- Server behind Cloudflare CDN
-- Shopify detected from headers
-- robots.txt reveals disallowed paths...
+[*] Running nmap scan         → open ports & services detected
+[*] Fetching HTTP headers     → server fingerprinted
+[*] Running WHOIS lookup      → domain ownership retrieved  
+[*] Fetching robots.txt       → hidden paths discovered
+
+### Reconnaissance Report
+...
 ```
+
+---
 
 ## Stack
 
-- **LLM** — `qwen2.5:7b` via Ollama
-- **Agent framework** — LangChain 1.x
-- **Tools** — nmap, whois, curl
-- **Language** — Python 3.13
+| Component | Details |
+|-----------|---------|
+| LLM | `qwen2.5:7b` via Ollama |
+| Agent Framework | LangChain 1.x |
+| Recon Tools | nmap, whois, curl |
+| Language | Python 3.13 |
+| Runs | 100% locally |
 
-## Requirements
+---
+
+## Setup
 
 ```bash
-# Ollama
+# 1. Install Ollama and pull the model
 curl -fsSL https://ollama.com/install.sh | sh
 ollama pull qwen2.5:7b
 
-# System tools
+# 2. Install system tools
 sudo dnf install nmap whois curl -y    # Fedora
-# sudo apt install nmap whois curl -y  # Debian/Ubuntu
+sudo apt install nmap whois curl -y    # Debian/Ubuntu
 
-# Python deps
-pip install langchain langchain-ollama langchain-community langchain-core
-```
-
-## Usage
-
-```bash
+# 3. Clone and install Python deps
 git clone https://github.com/yourusername/reconchain.git
 cd reconchain
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+```
 
-# Make sure Ollama is running
+---
+
+## Usage
+
+```bash
+# Start Ollama
 ollama serve
 
+# Run the agent
 python3 main.py
 ```
 
+---
+
 ## Tools
 
-| Tool | Description |
+| Tool | What it does |
 |------|-------------|
-| `get_nmap_scan` | Port and service discovery |
-| `get_whois` | Domain registration info |
-| `get_http_headers` | Web server and tech stack fingerprinting |
-| `get_robots_txt` | Hidden paths and directories |
+| `get_nmap_scan` | Discovers open ports and running services |
+| `get_whois` | Pulls domain registration and ownership info |
+| `get_http_headers` | Fingerprints web server and tech stack |
+| `get_robots_txt` | Reveals hidden paths and disallowed directories |
+
+---
 
 ## Roadmap
 
-- [ ] Interactive CLI (pass target as argument)
-- [ ] Add `dirb` / `gobuster` for directory brute-forcing
-- [ ] Add `nikto` web vulnerability scanner
+- [ ] Interactive CLI — pass target as argument
+- [ ] `gobuster` integration for directory brute-forcing
+- [ ] `nikto` web vulnerability scanning
 - [ ] Auto-generate markdown report after scan
+- [ ] Multi-target support
+
+---
 
 ## Disclaimer
 
-For authorized penetration testing and educational purposes only. Only use against systems you own or have explicit written permission to test.
+For **authorized penetration testing and educational purposes only**.  
+Only use against systems you own or have explicit written permission to test.  
+Unauthorized use is illegal.
