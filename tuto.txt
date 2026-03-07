@@ -1,0 +1,7 @@
+defining a system prompet The system prompt defines your agent’s role and behavior 
+tools Tools let a model interact with external systems by calling functions you define. Tools can depend on runtime context and also interact with agent memory. 
+Set up your language model with the right parameters for your use case:
+Define response format
+Optionally, define a structured response format if you need the agent responses to match a specific schema. 
+Add memory
+Add memory to your agent to maintain state across interactions. This allows the agent to remember previous conversations and context. 
