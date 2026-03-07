@@ -3,7 +3,7 @@ import subprocess
 import httpx
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
-
+from langchain_openai import ChatOpenAI
 load_dotenv()
 
 DNSDUMPSTER_API_KEY = os.getenv("DNSDumpster_API_KEY")
@@ -329,11 +329,21 @@ def run_wappalyzer(url: str) -> str:
 
 
 # ── Model ──────────────────────────────────────────────────────────────────────
-model = init_chat_model(
-    "qwen2.5:3b",
-    model_provider="ollama",
+#model = init_chat_model(
+  #  "qwen2.5:3b",
+ #   model_provider="ollama",
+#)
+model = ChatOpenAI(
+    model="google/gemma-3-27b-it:free",
+    openai_api_key=os.getenv("OPENROUTER_API_KEY"),
+    openai_api_base="https://openrouter.ai/api/v1",
+    temperature=0,
+    max_tokens=4096,
+    default_headers={
+        "HTTP-Referer": "https://pentest-agent.local",
+        "X-Title": "Pentest Agent",
+    },
 )
-
 # ── Run ────────────────────────────────────────────────────────────────────────
 target = "https://sberdiltek.com"
 
@@ -421,4 +431,6 @@ try:
         print(chunk.content, end="", flush=True)
     print("\n")
 except Exception as e:
+    import traceback
+    traceback.print_exc()
     print(f"[!] LLM error: {e}")
