@@ -333,17 +333,19 @@ def run_wappalyzer(url: str) -> str:
   #  "qwen2.5:3b",
  #   model_provider="ollama",
 #)
-model = ChatOpenAI(
-    model="google/gemma-3-27b-it:free",
-    openai_api_key=os.getenv("OPENROUTER_API_KEY"),
-    openai_api_base="https://openrouter.ai/api/v1",
-    temperature=0,
-    max_tokens=4096,
-    default_headers={
-        "HTTP-Referer": "https://pentest-agent.local",
-        "X-Title": "Pentest Agent",
-    },
-)
+try:
+    model = ChatOpenAI(
+        model="meta-llama/llama-3.1-8b-instruct:free",
+        openai_api_key=os.getenv("OPENROUTER_API_KEY"),
+        openai_api_base="https://openrouter.ai/api/v1",
+        temperature=0,
+    )
+except:
+    from langchain.chat_models import init_chat_model
+    model = init_chat_model(
+        "qwen2.5:3b",
+        model_provider="ollama"
+    )
 # ── Run ────────────────────────────────────────────────────────────────────────
 target = "https://sberdiltek.com"
 
