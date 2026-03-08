@@ -334,7 +334,7 @@ def run_wappalyzer(url: str) -> str:
  #   model_provider="ollama",
 #)
 model = ChatOpenAI(
-    model="google/gemma-3-27b-it:free",
+    model="openai/gpt-oss-120b:free",
     openai_api_key=os.getenv("OPENROUTER_API_KEY"),
     openai_api_base="https://openrouter.ai/api/v1",
     temperature=0,
