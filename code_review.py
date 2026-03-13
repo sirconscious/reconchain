@@ -232,7 +232,7 @@ while True:
     try:
         if not clone_repo(repo_url, tmpdir):
             continue
-
+            
         # Collect files
         print(f"  {C}◆{RS} Scanning files...", flush=True)
         files = collect_files(tmpdir)
