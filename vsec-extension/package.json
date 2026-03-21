@@ -1,0 +1,80 @@
+{
+  "name": "vsec",
+  "displayName": "VSec — AI Security Code Review",
+  "publisher": "mehdi",
+  "description": "AI-powered security vulnerability scanner for your code",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vsec.reviewFile",
+        "title": "VSec: Review This File"
+      },
+      {
+        "command": "vsec.reviewFolder",
+        "title": "VSec: Review This Folder"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "vsec.reviewFile",
+          "when": "resourceScheme == file && !explorerResourceIsFolder",
+          "group": "security"
+        },
+        {
+          "command": "vsec.reviewFolder",
+          "when": "explorerResourceIsFolder",
+          "group": "security"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "vsec.reviewFile",
+          "group": "security"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "VSec",
+      "properties": {
+        "vsec.anthropicApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Anthropic API key (or set ANTHROPIC_API_KEY env var)"
+        },
+        "vsec.model": {
+          "type": "string",
+          "default": "claude-haiku-4-5",
+          "enum": [
+            "claude-haiku-4-5",
+            "claude-sonnet-4-5"
+          ],
+          "description": "Claude model to use for analysis"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.32.0",
+    "typescript": "^5.0.0"
+  }
+}
