@@ -8,9 +8,8 @@ from collections import deque
 from blessed import Terminal
 from langchain_core.callbacks.base import BaseCallbackHandler
 
-from pentest_agent import (
-    agent, TOOLS, _CVE_TEXTS, _load_cve_dataset
-)
+from pentest_agent import agent, TOOLS
+from vsec.tools.defaults.cve import _CVE_TEXTS
 
 term = Terminal()
 
@@ -424,7 +423,6 @@ class VSecTUI:
 
 
 def run_tui():
-    _load_cve_dataset()
     app = VSecTUI()
     app.run()
 

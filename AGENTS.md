@@ -102,6 +102,7 @@ import Anthropic from '@anthropic-ai/sdk';
 ```
 langChain/
 ├── pentest_agent.py      # Phase 1-2: Recon agent (LangGraph REACT)
+├── tools.py              # All @tool functions (DNS, Web, Fuzzing, CVE, Shell)
 ├── code_review.py        # Phase 6: Code security reviewer
 ├── bot.py                # Telegram bot interface
 ├── tui.py                # Modern TUI (blessed)
@@ -114,9 +115,16 @@ langChain/
 └── vsec-extension/src/extension.ts  # VSCode extension
 ```
 
+### File Responsibilities
+
+| File | Responsibility |
+|------|----------------|
+| `pentest_agent.py` | Agent setup, CLI, callbacks, prompts (263 lines) |
+| `tools.py` | All `@tool` functions, helpers, CVE loading (363 lines) |
+
 ## Key Patterns
 
-### LangChain Tool Definition
+### LangChain Tool Definition (in tools.py)
 ```python
 @tool
 def tool_name(param: str) -> str:
@@ -125,6 +133,15 @@ def tool_name(param: str) -> str:
         return result
     except SpecificException as e:
         return f"Error message: {e}"
+```
+
+### Importing from tools.py
+```python
+from tools import (
+    TOOLS,
+    get_dnsdumpster, get_whois, get_http_headers,
+    _load_cve_dataset,
+)
 ```
 
 ### Callback Handler
@@ -163,6 +180,19 @@ ruff check . && black . && mypy .
 # TypeScript
 cd vsec-extension && npx eslint src/extension.ts && npx prettier --write src/extension.ts
 ```
+
+## Installed Skills
+
+These skills are installed globally and available for this project:
+
+| Skill | Purpose |
+|-------|---------|
+| `langgraph-fundamentals` | LangGraph/LangChain patterns and best practices |
+| `pentest-checklist` | Penetration testing methodology and checklists |
+| `pentest-expert` | Advanced pentest patterns |
+| `python-testing-patterns` | Pytest and testing patterns for Python |
+| `code-review-excellence` | Code review best practices |
+| `find-skills` | Skill discovery and installation |
 
 ## Important Notes
 1. **No tests exist** — validate manually by running scripts

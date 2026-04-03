@@ -32,22 +32,50 @@ agent → saves report to /reports/target_timestamp.txt
 ## Project Structure
 
 ```
-vsec/
-├── pentest_agent.py         ← Phase 1 & 2: interactive recon agent (terminal)
-├── code_review.py           ← Phase 6: AI code security reviewer (terminal)
-├── bot.py                   ← Telegram bot interface for pentest agent
-├── vsec-extension/          ← VSCode extension for code review
-│   ├── src/extension.ts
-│   ├── package.json
-│   └── vsec-0.1.0.vsix
-├── common.txt               ← wordlist for directory fuzzing
-├── subdomains.txt           ← wordlist for subdomain fuzzing
-├── reports/                 ← auto-saved pentest reports
-├── code_reports/            ← auto-saved code review reports
-├── cve-common-vulnerabilities-and-exposures/
-│   └── cve.csv              ← local CVE database (89k+ entries)
-└── .env                     ← API keys
+vsec/                       ← Main package (python -m vsec)
+├── __init__.py
+├── main.py                 ← Entry point
+├── config.py               ← Configuration settings
+├── py.typed               ← Type hints marker
+│
+├── tools/
+│   ├── __init__.py        ← Tool discovery & registry
+│   ├── defaults/           ← Built-in tools (shipped with VSec)
+│   │   ├── dns.py         # DNS recon tools
+│   │   ├── web.py         # Web recon tools
+│   │   ├── fuzz.py        # Fuzzing tools
+│   │   ├── cve.py         # CVE lookup tools
+│   │   └── utils.py       # Utility tools
+│   │
+│   └── custom/            ← User-added tools (gitignored!)
+│       └── example_custom_tools.py
+│
+pentest_agent.py             ← Legacy entry point (backward compat)
+code_review.py               ← AI code security reviewer
+bot.py                       ← Telegram bot interface
+tui.py                       ← Modern TUI interface
+common.txt                   ← Directory wordlist
+subdomains-top1million-20000.txt  ← Subdomain wordlist
+reports/                     ← Auto-saved pentest reports
+code_reports/                ← Auto-saved code review reports
+cve-common-vulnerabilities-and-exposures/
+└── cve.csv                  ← Local CVE database (89k+ entries)
 ```
+
+### Adding Custom Tools
+
+Drop a `.py` file in `vsec/tools/custom/` with `@tool` decorated functions:
+
+```python
+from langchain_core.tools import tool
+
+@tool
+def my_custom_scan(url: str) -> str:
+    """Describe your tool here."""
+    return "result"
+```
+
+Tools are auto-loaded on restart! See `vsec/tools/custom/example_custom_tools.py` for examples.
 
 ---
 

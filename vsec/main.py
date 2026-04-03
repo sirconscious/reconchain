@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 """
-VSec — AI-Powered Penetration Testing Agent
-Phase 1: Reconnaissance & OSINT
-
-Note: This file is kept for backward compatibility.
-For the new modular framework, use: python -m vsec
+VSec Main Entry Point — AI-Powered Penetration Testing Framework
 """
 import os
+import sys
 import time
 import datetime
-import sys
+import argparse
 
 from dotenv import load_dotenv
 from colorama import Fore, Style, init as colorama_init
@@ -18,15 +15,10 @@ from langchain_core.callbacks.base import BaseCallbackHandler
 from langgraph.prebuilt import create_react_agent
 
 from vsec.tools import TOOLS
+from vsec.config import settings
 
 colorama_init(autoreset=True)
 load_dotenv()
-
-
-# ════════════════════════════════════════════════════════════════════════════════════
-# CONFIG
-# ════════════════════════════════════════════════════════════════════════════════════
-REPORTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reports")
 
 
 # ════════════════════════════════════════════════════════════════════════════════════
@@ -71,11 +63,11 @@ TOOL_ICONS = {
     "get_http_headers":    ("📡", C),
     "get_robots_txt":      ("🤖", C),
     "get_nmap_scan":       ("🔍", Y),
-    "check_common_paths":  ("🚪", Y),
+    "check_common_paths":   ("🚪", Y),
     "run_gobuster_dirs":   ("📂", Y),
     "run_gobuster_subs":   ("🌍", Y),
     "detect_technologies": ("🔬", M),
-    "shell":               ("💻", R),
+    "shell":              ("💻", R),
     "retrieve_cve_info":   ("🗄", Y),
 }
 
@@ -141,18 +133,18 @@ RULES:
 # ════════════════════════════════════════════════════════════════════════════════════
 def save_report(target: str, content: str) -> str:
     """Save report to reports/ folder with timestamp."""
-    os.makedirs(REPORTS_DIR, exist_ok=True)
+    os.makedirs(settings.reports_dir, exist_ok=True)
     domain = target.replace("https://", "").replace("http://", "").split("/")[0]
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{domain}_{timestamp}.md"
-    filepath = os.path.join(REPORTS_DIR, filename)
+    filepath = settings.reports_dir / filename
     with open(filepath, "w") as f:
         f.write(f"VSec Penetration Test Report\n")
         f.write(f"Target    : {target}\n")
         f.write(f"Generated : {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write("=" * 60 + "\n\n")
         f.write(content)
-    return filepath
+    return str(filepath)
 
 
 # ════════════════════════════════════════════════════════════════════════════════════
@@ -171,88 +163,105 @@ agent = create_react_agent(model, TOOLS, prompt=SYSTEM_PROMPT)
 # ════════════════════════════════════════════════════════════════════════════════════
 # CLI ENTRY POINT
 # ════════════════════════════════════════════════════════════════════════════════════
-if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "--tui":
-        from tui import run_tui
-        run_tui()
-    else:
-        print(BANNER)
-        print(DIV)
-        print(f"  {C}◆{RS} Connecting to Anthropic API...", flush=True)
-        print(f"  {G}✔{RS} Model   : {B}claude-haiku-4-5{RS}")
-        print(f"  {G}✔{RS} Tools   : {B}{len(TOOLS)} active{RS}")
-        print(f"  {G}✔{RS} Status  : {G}{B}ready{RS}")
-        print(DIV)
-        print(f"\n  {Y}commands:{RS}")
-        print(f"  {DIM}  new   → fresh engagement{RS}")
-        print(f"  {DIM}  exit  → quit VSec{RS}")
-        print(f"  {DIM}  --tui → launch modern TUI interface{RS}")
-        print(DIV2)
+def run_cli():
+    """Run the interactive CLI."""
+    print(BANNER)
+    print(DIV)
+    print(f"  {C}◆{RS} Connecting to Anthropic API...", flush=True)
+    print(f"  {G}✔{RS} Model   : {B}claude-haiku-4-5{RS}")
+    print(f"  {G}✔{RS} Tools   : {B}{len(TOOLS)} active{RS}")
+    print(f"  {G}✔{RS} Status  : {G}{B}ready{RS}")
+    print(DIV)
+    print(f"\n  {Y}commands:{RS}")
+    print(f"  {DIM}  new   → fresh engagement{RS}")
+    print(f"  {DIM}  exit  → quit VSec{RS}")
+    print(f"  {DIM}  --tui → launch modern TUI interface{RS}")
+    print(DIV2)
 
-        messages = []
-        print(f"\n  {C}{B}VSec >{RS} What target would you like to assess?\n")
+    messages = []
+    print(f"\n  {C}{B}VSec >{RS} What target would you like to assess?\n")
 
-        while True:
-            try:
-                user_input = input(f"  {G}{B}you   >{RS} ").strip()
-            except (KeyboardInterrupt, EOFError):
-                print(f"\n\n  {Y}Goodbye.{RS}\n")
-                break
+    while True:
+        try:
+            user_input = input(f"  {G}{B}you   >{RS} ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print(f"\n\n  {Y}Goodbye.{RS}\n")
+            break
 
-            if not user_input:
-                continue
+        if not user_input:
+            continue
 
-            if user_input.lower() in ("exit", "quit"):
-                print(f"\n  {Y}Goodbye.{RS}\n")
-                break
+        if user_input.lower() in ("exit", "quit"):
+            print(f"\n  {Y}Goodbye.{RS}\n")
+            break
 
-            if user_input.lower() == "new":
-                messages = []
-                print(DIV)
-                print(f"  {C}◆ New engagement started.{RS}")
-                print(DIV)
-                print(f"\n  {C}{B}VSec >{RS} What target would you like to assess?\n")
-                continue
-
-            messages.append({"role": "user", "content": user_input})
+        if user_input.lower() == "new":
+            messages = []
             print(DIV)
+            print(f"  {C}◆ New engagement started.{RS}")
+            print(DIV)
+            print(f"\n  {C}{B}VSec >{RS} What target would you like to assess?\n")
+            continue
 
-            try:
-                result = agent.invoke(
-                    {"messages": messages},
-                    config={"callbacks": [LiveProgressHandler()]},
+        messages.append({"role": "user", "content": user_input})
+        print(DIV)
+
+        try:
+            result = agent.invoke(
+                {"messages": messages},
+                config={"callbacks": [LiveProgressHandler()]},
+            )
+
+            ai_messages = [
+                m for m in result["messages"]
+                if hasattr(m, "content") and m.type == "ai"
+            ]
+            response = ai_messages[-1].content if ai_messages else str(result["messages"][-1].content)
+
+            print(DIV)
+            print(f"\n  {C}{B}VSec >{RS}\n")
+            for line in response.splitlines():
+                print(f"  {line}")
+            print()
+
+            if any(kw in response for kw in ["[REPORT]", "[RECON]", "Finding #", "Severity", "PENETRATION TEST"]):
+                filepath = save_report(
+                    user_input if "http" in user_input else messages[0].get("content", "unknown"),
+                    response
                 )
+                print(f"  {G}✔ Report saved →{RS} {DIM}{filepath}{RS}\n")
 
-                ai_messages = [
-                    m for m in result["messages"]
-                    if hasattr(m, "content") and m.type == "ai"
-                ]
-                response = ai_messages[-1].content if ai_messages else str(result["messages"][-1].content)
+            messages = [
+                {"role": "user" if m.type == "human" else "assistant", "content": m.content}
+                for m in result["messages"]
+                if hasattr(m, "type") and m.type in ("human", "ai")
+                and isinstance(m.content, str)
+            ]
 
-                print(DIV)
-                print(f"\n  {C}{B}VSec >{RS}\n")
-                for line in response.splitlines():
-                    print(f"  {line}")
-                print()
+        except Exception as e:
+            if "429" in str(e):
+                print(f"\n  {R}✗ Rate limited. Waiting 30s...{RS}\n")
+                time.sleep(30)
+                print(f"  {C}{B}VSec >{RS} Ready. Repeat your last message.\n")
+            else:
+                print(f"\n  {R}✗ Error: {e}{RS}\n")
 
-                if any(kw in response for kw in ["[REPORT]", "[RECON]", "Finding #", "Severity", "PENETRATION TEST"]):
-                    filepath = save_report(
-                        user_input if "http" in user_input else messages[0].get("content", "unknown"),
-                        response
-                    )
-                    print(f"  {G}✔ Report saved →{RS} {DIM}{filepath}{RS}\n")
 
-                messages = [
-                    {"role": "user" if m.type == "human" else "assistant", "content": m.content}
-                    for m in result["messages"]
-                    if hasattr(m, "type") and m.type in ("human", "ai")
-                    and isinstance(m.content, str)
-                ]
+def main():
+    """Main entry point."""
+    parser = argparse.ArgumentParser(description="VSec — AI-Powered Penetration Testing")
+    parser.add_argument("--tui", action="store_true", help="Launch TUI interface")
+    args = parser.parse_args()
+    
+    if args.tui:
+        try:
+            from vsec_tui import run_tui
+            run_tui()
+        except ImportError:
+            print(f"  {R}✗ TUI module not found. Run: pip install blessed{RS}")
+    else:
+        run_cli()
 
-            except Exception as e:
-                if "429" in str(e):
-                    print(f"\n  {R}✗ Rate limited. Waiting 30s...{RS}\n")
-                    time.sleep(30)
-                    print(f"  {C}{B}VSec >{RS} Ready. Repeat your last message.\n")
-                else:
-                    print(f"\n  {R}✗ Error: {e}{RS}\n")
+
+if __name__ == "__main__":
+    main()
