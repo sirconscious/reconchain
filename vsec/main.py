@@ -1,28 +1,37 @@
 #!/usr/bin/env python3
 """
-VSec Main Entry Point — AI-Powered Penetration Testing Framework
+VSec — AI-Powered Penetration Testing Framework
+Main entry point for the CLI/TUI interface.
 """
 import os
 import sys
 import time
+import asyncio
 import datetime
 import argparse
+import threading
+from queue import Queue, Empty
 
 from dotenv import load_dotenv
 from colorama import Fore, Style, init as colorama_init
-from langchain_anthropic import ChatAnthropic
-from langchain_core.callbacks.base import BaseCallbackHandler
 from langgraph.prebuilt import create_react_agent
 
 from vsec.tools import TOOLS
 from vsec.config import settings
+from vsec.providers import (
+    create_model,
+    list_providers,
+    get_provider_info,
+    check_provider_config,
+    get_default_provider,
+)
 
 colorama_init(autoreset=True)
 load_dotenv()
 
 
 # ════════════════════════════════════════════════════════════════════════════════════
-# CONSTANTS: Colors
+# CONSTANTS
 # ════════════════════════════════════════════════════════════════════════════════════
 G   = Fore.GREEN
 C   = Fore.CYAN
@@ -34,10 +43,6 @@ DIM = Style.DIM
 B   = Style.BRIGHT
 RS  = Style.RESET_ALL
 
-
-# ════════════════════════════════════════════════════════════════════════════════════
-# CONSTANTS: UI Elements
-# ════════════════════════════════════════════════════════════════════════════════════
 BANNER = f"""
 {G}{B}
  ██╗   ██╗███████╗███████╗ ██████╗
@@ -53,61 +58,6 @@ BANNER = f"""
 DIV  = f"{G}{DIM}{'─' * 60}{RS}"
 DIV2 = f"{G}{'━' * 60}{RS}"
 
-
-# ════════════════════════════════════════════════════════════════════════════════════
-# CALLBACKS
-# ════════════════════════════════════════════════════════════════════════════════════
-TOOL_ICONS = {
-    "get_dnsdumpster":     ("🌐", C),
-    "get_whois":           ("📋", C),
-    "get_http_headers":    ("📡", C),
-    "get_robots_txt":      ("🤖", C),
-    "get_nmap_scan":       ("🔍", Y),
-    "check_common_paths":   ("🚪", Y),
-    "run_gobuster_dirs":   ("📂", Y),
-    "run_gobuster_subs":   ("🌍", Y),
-    "detect_technologies": ("🔬", M),
-    "shell":              ("💻", R),
-    "retrieve_cve_info":   ("🗄", Y),
-}
-
-
-class LiveProgressHandler(BaseCallbackHandler):
-    def __init__(self):
-        self.tool_start_time = None
-        self.step = 0
-
-    def _ts(self) -> str:
-        return f"{DIM}{datetime.datetime.now().strftime('%H:%M:%S')}{RS}"
-
-    def on_llm_start(self, *args, **kwargs):
-        print(f"  {self._ts()} {M}◆{RS} {DIM}reasoning...{RS}", flush=True)
-
-    def on_tool_start(self, serialized, input_str, **kwargs):
-        self.tool_start_time = time.time()
-        self.step += 1
-        name = serialized.get("name", "unknown_tool")
-        icon, color = TOOL_ICONS.get(name, ("⚙", W))
-        print(f"\n  {self._ts()} {color}{B}{icon} [{self.step}] {name}{RS}", flush=True)
-        print(f"  {DIM}           ↳ {str(input_str)[:80]}{RS}", flush=True)
-
-    def on_tool_end(self, output, **kwargs):
-        elapsed = time.time() - self.tool_start_time if self.tool_start_time else 0
-        lines = str(output).strip().splitlines()
-        preview = lines[0][:80] if lines else "(empty)"
-        print(f"  {DIM}           ✓ {elapsed:.1f}s  {G}{preview}{RS}", flush=True)
-
-    def on_tool_error(self, error, **kwargs):
-        elapsed = time.time() - self.tool_start_time if self.tool_start_time else 0
-        print(f"  {DIM}           {R}✗ {elapsed:.1f}s  {str(error)[:80]}{RS}", flush=True)
-
-    def on_agent_finish(self, finish, **kwargs):
-        print(f"\n  {self._ts()} {G}{B}✔ scan complete{RS}\n", flush=True)
-
-
-# ════════════════════════════════════════════════════════════════════════════════════
-# PROMPTS
-# ════════════════════════════════════════════════════════════════════════════════════
 SYSTEM_PROMPT = """
 You are an elite web penetration tester running in interactive mode.
 
@@ -129,53 +79,145 @@ RULES:
 
 
 # ════════════════════════════════════════════════════════════════════════════════════
-# UTILS: Helpers
+# AGENT SETUP
 # ════════════════════════════════════════════════════════════════════════════════════
+DEFAULT_TIMEOUT = 120
+
+
+def _thinking_spinner(stop_event: threading.Event, message: str = "thinking"):
+    """Display a thinking spinner while waiting."""
+    spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    i = 0
+    while not stop_event.is_set():
+        print(f"\r  {C}{spinner[i % len(spinner)]}{RS} {Y}{message}...{RS} ", end="", flush=True)
+        time.sleep(0.1)
+        i += 1
+    print(f"\r  {G}✔ done{RS}" + " " * 20 + "\n")
+
+
+def invoke_with_timeout(agent, messages: dict, timeout: int = DEFAULT_TIMEOUT) -> dict:
+    """Run agent.invoke() with timeout and progress indicator."""
+    result_queue: Queue = Queue()
+    error_queue: Queue = Queue()
+    stop_event = threading.Event()
+
+    def run_agent():
+        try:
+            result = agent.invoke(messages)
+            result_queue.put(("success", result))
+        except Exception as e:
+            error_queue.put(("error", e))
+        finally:
+            stop_event.set()
+
+    spinner_thread = threading.Thread(target=_thinking_spinner, args=(stop_event, "thinking"))
+    agent_thread = threading.Thread(target=run_agent)
+
+    print(f"  {C}◆{RS} Processing request... (timeout: {timeout}s)")
+    spinner_thread.start()
+    agent_thread.start()
+
+    agent_thread.join(timeout=timeout)
+
+    if agent_thread.is_alive():
+        stop_event.set()
+        spinner_thread.join(timeout=1)
+        raise TimeoutError(f"Request timed out after {timeout} seconds")
+
+    spinner_thread.join(timeout=0.5)
+    stop_event.set()
+
+    if not result_queue.empty():
+        status, result = result_queue.get()
+        if status == "success":
+            return result
+
+    if not error_queue.empty():
+        status, error = error_queue.get()
+        raise error
+
+    raise RuntimeError("Agent returned no result")
+
+
+def create_agent(provider: str | None = None, model: str | None = None):
+    """Create the LangChain agent with specified or default provider."""
+    # Use config settings if not specified
+    if provider is None:
+        provider = settings.provider
+    if model is None:
+        model = settings.model
+    
+    # Create model using provider
+    llm = create_model(provider=provider, model=model)
+    
+    # Get model info for display
+    provider_info = get_provider_info(provider)
+    display_model = model or provider_info.default_model if provider_info else "unknown"
+    
+    return create_react_agent(llm, TOOLS, prompt=SYSTEM_PROMPT), display_model
+
+
 def save_report(target: str, content: str) -> str:
-    """Save report to reports/ folder with timestamp."""
-    os.makedirs(settings.reports_dir, exist_ok=True)
+    """Save report to reports folder."""
+    settings.reports_dir.mkdir(parents=True, exist_ok=True)
     domain = target.replace("https://", "").replace("http://", "").split("/")[0]
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{domain}_{timestamp}.md"
     filepath = settings.reports_dir / filename
     with open(filepath, "w") as f:
-        f.write(f"VSec Penetration Test Report\n")
-        f.write(f"Target    : {target}\n")
-        f.write(f"Generated : {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write("=" * 60 + "\n\n")
+        f.write(f"# VSec Penetration Test Report\n\n")
+        f.write(f"**Target:** {target}\n")
+        f.write(f"**Generated:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        f.write("---\n\n")
         f.write(content)
     return str(filepath)
 
 
 # ════════════════════════════════════════════════════════════════════════════════════
-# AGENT SETUP
+# PROVIDER INFO DISPLAY
 # ════════════════════════════════════════════════════════════════════════════════════
-model = ChatAnthropic(
-    model="claude-haiku-4-5",
-    anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
-    temperature=0,
-    max_tokens=4096,
-)
-
-agent = create_react_agent(model, TOOLS, prompt=SYSTEM_PROMPT)
+def print_provider_status():
+    """Print the status of all configured providers."""
+    print(f"\n  {Y}Available Providers:{RS}")
+    
+    providers = list_providers()
+    for p in providers:
+        check = check_provider_config(p.name)
+        status = f"{G}✓ configured{RS}" if check["available"] else f"{R}✗ {check['reason']}{RS}"
+        models = ", ".join(check.get("models", [])[:3])
+        if len(check.get("models", [])) > 3:
+            models += "..."
+        print(f"  {DIM}  {p.name:12}{RS} {p.display_name:20} {status}")
+        print(f"  {DIM}           Models: {models}{RS}")
+        print()
 
 
 # ════════════════════════════════════════════════════════════════════════════════════
-# CLI ENTRY POINT
+# CLI MODE
 # ════════════════════════════════════════════════════════════════════════════════════
-def run_cli():
-    """Run the interactive CLI."""
+def run_cli(agent, model_name: str, timeout: int = DEFAULT_TIMEOUT):
+    """Run simple CLI mode."""
     print(BANNER)
     print(DIV)
-    print(f"  {C}◆{RS} Connecting to Anthropic API...", flush=True)
-    print(f"  {G}✔{RS} Model   : {B}claude-haiku-4-5{RS}")
+    
+    # Show provider info
+    provider = settings.provider
+    provider_info = get_provider_info(provider)
+    display_name = provider_info.display_name if provider_info else provider
+    
+    print(f"  {C}◆{RS} Initializing agent...", flush=True)
+    print(f"  {G}✔{RS} Provider: {B}{display_name}{RS}")
+    print(f"  {G}✔{RS} Model   : {B}{model_name}{RS}")
     print(f"  {G}✔{RS} Tools   : {B}{len(TOOLS)} active{RS}")
     print(f"  {G}✔{RS} Status  : {G}{B}ready{RS}")
     print(DIV)
+    
+    print_provider_status()
+    
     print(f"\n  {Y}commands:{RS}")
-    print(f"  {DIM}  new   → fresh engagement{RS}")
-    print(f"  {DIM}  exit  → quit VSec{RS}")
-    print(f"  {DIM}  --tui → launch modern TUI interface{RS}")
+    print(f"  {DIM}  new    → fresh engagement{RS}")
+    print(f"  {DIM}  exit   → quit VSec{RS}")
+    print(f"  {DIM}  --tui  → launch modern TUI interface{RS}")
     print(DIV2)
 
     messages = []
@@ -207,10 +249,7 @@ def run_cli():
         print(DIV)
 
         try:
-            result = agent.invoke(
-                {"messages": messages},
-                config={"callbacks": [LiveProgressHandler()]},
-            )
+            result = invoke_with_timeout(agent, {"messages": messages}, timeout=timeout)
 
             ai_messages = [
                 m for m in result["messages"]
@@ -238,6 +277,9 @@ def run_cli():
                 and isinstance(m.content, str)
             ]
 
+        except TimeoutError as e:
+            print(f"\n  {Y}⚠ Timeout: {e}{RS}")
+            print(f"  {DIM}Try again or use a faster model/provider.{RS}\n")
         except Exception as e:
             if "429" in str(e):
                 print(f"\n  {R}✗ Rate limited. Waiting 30s...{RS}\n")
@@ -247,20 +289,48 @@ def run_cli():
                 print(f"\n  {R}✗ Error: {e}{RS}\n")
 
 
+# ════════════════════════════════════════════════════════════════════════════════════
+# MAIN
+# ════════════════════════════════════════════════════════════════════════════════════
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="VSec — AI-Powered Penetration Testing")
-    parser.add_argument("--tui", action="store_true", help="Launch TUI interface")
+    parser.add_argument("--tui", action="store_true", help="Launch modern TUI interface")
+    parser.add_argument("--cli", action="store_true", help="Launch CLI interface (default)")
+    parser.add_argument("--model", "-m", type=str, default="claude-haiku-4-5", help="Model name (default: claude-haiku-4-5)")
+    parser.add_argument("--provider", "-p", type=str, default="anthropic", help="AI provider (default: anthropic)")
+    parser.add_argument("--timeout", "-t", type=int, default=DEFAULT_TIMEOUT, help=f"Request timeout in seconds (default: {DEFAULT_TIMEOUT})")
+    parser.add_argument("--list-providers", action="store_true", help="List available providers")
     args = parser.parse_args()
     
+    # List providers and exit
+    if args.list_providers:
+        print(BANNER)
+        print_provider_status()
+        return
+    
+    # Create agent
+    try:
+        agent, model_name = create_agent(
+            provider=args.provider,
+            model=args.model
+        )
+    except ValueError as e:
+        print(f"\n  {R}✗ {e}{RS}\n")
+        print(f"  {DIM}Use --list-providers to see available options{RS}\n")
+        sys.exit(1)
+    
+    # Run appropriate interface
     if args.tui:
         try:
-            from vsec_tui import run_tui
-            run_tui()
-        except ImportError:
-            print(f"  {R}✗ TUI module not found. Run: pip install blessed{RS}")
+            from vsec.ui import run_tui
+            run_tui(agent)
+        except ImportError as e:
+            print(f"  {R}✗ TUI error: {e}{RS}")
+            print(f"  {DIM}Falling back to CLI mode...{RS}")
+            run_cli(agent, model_name, timeout=args.timeout)
     else:
-        run_cli()
+        run_cli(agent, model_name, timeout=args.timeout)
 
 
 if __name__ == "__main__":

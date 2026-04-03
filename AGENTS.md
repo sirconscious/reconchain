@@ -11,7 +11,7 @@ VSec is an AI-powered penetration testing and security code review system:
 ### Python
 ```bash
 source venv/bin/activate
-pip install langchain langchain-anthropic langchain-core langgraph anthropic httpx colorama python-dotenv python-telegram-bot blessed
+pip install langchain langchain-anthropic langchain-openai langchain-ollama langchain-core langgraph anthropic httpx colorama python-dotenv python-telegram-bot blessed
 python3 pentest_agent.py              # Classic mode
 python3 pentest_agent.py --tui         # Modern TUI (Claude Code-style)
 python3 code_review.py                 # Code security reviewer
@@ -112,7 +112,27 @@ langChain/
 ├── cve-common-vulnerabilities-and-exposures/cve.csv  # 89k+ CVE entries
 ├── reports/              # Auto-saved pentest reports
 ├── code_reports/         # Auto-saved code review reports
-└── vsec-extension/src/extension.ts  # VSCode extension
+├── vsec-extension/src/extension.ts  # VSCode extension
+└── vsec/                 # New modular package
+    ├── __init__.py
+    ├── __main__.py
+    ├── main.py           # CLI entry point
+    ├── config.py         # Settings with provider config
+    ├── tools/
+    │   ├── __init__.py  # Tool discovery system
+    │   ├── defaults/     # Built-in tools (dns, web, fuzz, cve, utils)
+    │   └── custom/      # Custom tools (drop .py files here)
+    ├── ui/
+    │   ├── __init__.py
+    │   ├── cli.py       # Blessed TUI
+    │   └── callback.py  # LiveProgressHandler
+    └── providers/       # AI provider system
+        ├── __init__.py  # Provider factory (create_model, list_providers)
+        ├── base.py      # BaseModel, ModelInfo, register_provider
+        ├── anthropic.py # Anthropic Claude provider
+        ├── openai.py    # OpenAI GPT provider
+        ├── groq.py      # Groq free inference provider
+        └── ollama.py    # Ollama local models provider
 ```
 
 ### File Responsibilities
@@ -121,6 +141,9 @@ langChain/
 |------|----------------|
 | `pentest_agent.py` | Agent setup, CLI, callbacks, prompts (263 lines) |
 | `tools.py` | All `@tool` functions, helpers, CVE loading (363 lines) |
+| `vsec/providers/__init__.py` | Provider factory: `create_model()`, `list_providers()` |
+| `vsec/providers/base.py` | `BaseModel`, `ModelInfo`, `register_provider()` decorator |
+| `vsec/providers/*.py` | Provider implementations (Anthropic, OpenAI, Groq, Ollama) |
 
 ## Key Patterns
 
@@ -142,6 +165,50 @@ from tools import (
     get_dnsdumpster, get_whois, get_http_headers,
     _load_cve_dataset,
 )
+```
+
+### Provider System (vsec/providers/)
+Each provider is a module that defines a provider class and registers it:
+
+```python
+from vsec.providers.base import BaseModel, ModelInfo, register_provider
+
+class MyProvider(BaseModel):
+    name = "myprovider"
+    display_name = "My Provider"
+    
+    def create(self, **kwargs) -> Any:
+        # Return model instance
+        ...
+
+# Register after class definition (NOT as decorator - see note below)
+register_provider(ModelInfo(
+    name="myprovider",
+    display_name="My Provider",
+    class_path="vsec.providers.myprovider:MyProvider",
+    default_model="my-model",
+    available_models=["my-model"],
+    env_key="MY_API_KEY",
+    api_key_required=True,
+    supports_system_message=True,
+))
+```
+
+**Important Note on Registration Pattern:**
+The `@register_provider(ModelInfo(...))` decorator syntax DOES NOT WORK when applied to class definitions due to a Python import cycle issue. Always use explicit `register_provider(ModelInfo(...))` calls after the class definition instead.
+
+**Using the Provider System:**
+```python
+from vsec.providers import create_model, list_providers, get_default_provider
+
+# List available providers
+providers = list_providers()
+
+# Get default provider based on available API keys
+provider = get_default_provider()
+
+# Create a model
+model = create_model(provider="anthropic", model="claude-haiku-4-5")
 ```
 
 ### Callback Handler
