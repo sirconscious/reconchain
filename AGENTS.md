@@ -3,19 +3,33 @@
 ## Project Overview
 VSec is an AI-powered penetration testing and security code review system:
 - **Python**: Main agent logic using LangChain/LangGraph (`pentest_agent.py`, `code_review.py`, `bot.py`)
+- **Python API**: FastAPI backend for web UI integration (`vsec/api/`)
 - **TypeScript/VSCode**: VSCode extension (`vsec-extension/src/extension.ts`)
 - **No formal test suite** — testing is done manually
 
 ## Build & Run Commands
 
-### Python
+### Python Dependencies
 ```bash
-source venv/bin/activate
 pip install langchain langchain-anthropic langchain-openai langchain-ollama langchain-core langgraph anthropic httpx colorama python-dotenv python-telegram-bot blessed
-python3 pentest_agent.py              # Classic mode
-python3 pentest_agent.py --tui         # Modern TUI (Claude Code-style)
+pip install fastapi uvicorn sse-starlette
+```
+
+### Python Entry Points
+```bash
+python3 pentest_agent.py              # Classic CLI mode
+python3 pentest_agent.py --tui         # Modern TUI
+python3 -m vsec.api                  # API server (port 8000)
 python3 code_review.py                 # Code security reviewer
 python3 bot.py                         # Telegram bot
+```
+
+### API Server
+```bash
+python -m vsec.api                           # Default (0.0.0.0:8000)
+python -m vsec.api --host 127.0.0.1        # Local only
+python -m vsec.api --port 9000              # Custom port
+python -m vsec.api --reload                 # Auto-reload
 ```
 
 ### TypeScript/VSCode Extension
@@ -25,7 +39,109 @@ npm install
 npx tsc -p ./              # Compile
 npm run watch               # Watch mode
 npm run package             # Package .vsix
-code --install-extension vsec-*.vsix  # Install locally
+code --install-extension vsec-*.vsix
+```
+
+## Project Structure
+```
+vsec/
+├── api/                    # FastAPI backend
+│   ├── __init__.py
+│   ├── __main__.py        # python -m vsec.api
+│   ├── schemas.py         # Pydantic models
+│   ├── session.py          # Session manager
+│   ├── agent.py            # PentestAgent class
+│   ├── routes.py           # API routes + SSE
+│   └── code_review/       # Code review API
+│       ├── agent.py       # CodeReviewAgent
+│       ├── schemas.py     # Review models
+│       └── routes.py      # Review endpoints
+├── tools/                  # Tool discovery
+│   ├── defaults/           # Built-in tools
+│   └── custom/            # User tools (drop .py here)
+└── providers/              # AI provider system
+
+pentest_agent.py            # CLI + PentestAgent wrapper
+tools.py                    # All @tool functions
+reports/                    # Generated pentest reports
+code_reports/              # Generated code review reports
+```
+
+## API Layer (vsec/api/)
+
+### Pentest Agent Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/health` | Health check |
+| GET | `/api/tools` | List available tools |
+| POST | `/api/sessions` | Create new session |
+| GET | `/api/sessions` | List all sessions |
+| GET | `/api/sessions/{id}` | Get session details |
+| DELETE | `/api/sessions/{id}` | Delete session |
+| POST | `/api/sessions/{id}/message` | Send message (SSE) |
+| GET | `/api/sessions/{id}/stream` | SSE status stream |
+| GET | `/api/reports/{session_id}` | Get report content |
+| GET | `/api/reports/{session_id}/download` | Download report |
+
+### Code Review Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/code-review/reviews` | Start new review |
+| GET | `/api/code-review/reviews` | List all reviews |
+| GET | `/api/code-review/reviews/{id}` | Get review status |
+| DELETE | `/api/code-review/reviews/{id}` | Delete review |
+| POST | `/api/code-review/reviews/{id}/run` | Run review (SSE) |
+| POST | `/api/code-review/reviews/{id}/start` | Run review (blocking) |
+| GET | `/api/code-review/reports/{id}` | Get review report |
+| GET | `/api/code-review/reports/{id}/download` | Download report |
+
+### SSE Events (Pentest)
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| `tool_start` | `tool`, `input`, `step` | Tool execution started |
+| `tool_end` | `tool`, `output`, `elapsed` | Tool execution completed |
+| `message` | `content` | AI response |
+| `done` | `report_path` | Analysis complete |
+
+### SSE Events (Code Review)
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| `status` | `status`, `message` | Current status |
+| `progress` | `progress` (0-100) | Progress update |
+| `quick_finding` | `finding` | Pattern match found |
+| `done` | `report_path`, `files_found` | Review complete |
+| `error` | `error` | Error occurred |
+
+### API Usage Examples
+
+```bash
+# === Pentest Agent ===
+# Create session
+curl -X POST http://localhost:8000/api/sessions
+
+# Send message (streaming)
+curl -X POST http://localhost:8000/api/sessions/{id}/message \
+  -H "Content-Type: application/json" \
+  -d '{"content": "https://example.com"}'
+
+# Get report
+curl http://localhost:8000/api/reports/{session_id}
+
+# === Code Review ===
+# Start review
+curl -X POST http://localhost:8000/api/code-review/reviews \
+  -H "Content-Type: application/json" \
+  -d '{"repo_url": "https://github.com/user/repo"}'
+
+# Run review (SSE streaming)
+curl -X POST http://localhost:8000/api/code-review/reviews/{id}/run
+
+# Get review report
+curl http://localhost:8000/api/code-review/reports/{id}
 ```
 
 ## Code Style Guidelines
@@ -72,8 +188,6 @@ def get_whois(url: str) -> str:
 - Tools must return strings, never raise
 - Log errors with colorama for visibility
 
-**String Formatting**: Use f-strings and `\n` for multi-line strings
-
 ### TypeScript Style
 
 **tsconfig.json**:
@@ -97,53 +211,6 @@ import Anthropic from '@anthropic-ai/sdk';
 - Layout: Left panel (80%) for chat, right sidebar (20%) for tools
 - Colors: Background `#0d1117`, Accent Green `#00ff88`, Cyan `#58a6ff`
 - Shortcuts: Enter=send, ↑/↓=scroll, Ctrl+C=quit, Ctrl+N=new session
-
-## Project Structure
-```
-langChain/
-├── pentest_agent.py      # Phase 1-2: Recon agent (LangGraph REACT)
-├── tools.py              # All @tool functions (DNS, Web, Fuzzing, CVE, Shell)
-├── code_review.py        # Phase 6: Code security reviewer
-├── bot.py                # Telegram bot interface
-├── tui.py                # Modern TUI (blessed)
-├── data.py               # Data utilities
-├── common.txt            # Directory fuzzing wordlist
-├── subdomains-top1million-20000.txt  # Subdomain wordlist
-├── cve-common-vulnerabilities-and-exposures/cve.csv  # 89k+ CVE entries
-├── reports/              # Auto-saved pentest reports
-├── code_reports/         # Auto-saved code review reports
-├── vsec-extension/src/extension.ts  # VSCode extension
-└── vsec/                 # New modular package
-    ├── __init__.py
-    ├── __main__.py
-    ├── main.py           # CLI entry point
-    ├── config.py         # Settings with provider config
-    ├── tools/
-    │   ├── __init__.py  # Tool discovery system
-    │   ├── defaults/     # Built-in tools (dns, web, fuzz, cve, utils)
-    │   └── custom/      # Custom tools (drop .py files here)
-    ├── ui/
-    │   ├── __init__.py
-    │   ├── cli.py       # Blessed TUI
-    │   └── callback.py  # LiveProgressHandler
-    └── providers/       # AI provider system
-        ├── __init__.py  # Provider factory (create_model, list_providers)
-        ├── base.py      # BaseModel, ModelInfo, register_provider
-        ├── anthropic.py # Anthropic Claude provider
-        ├── openai.py    # OpenAI GPT provider
-        ├── groq.py      # Groq free inference provider
-        └── ollama.py    # Ollama local models provider
-```
-
-### File Responsibilities
-
-| File | Responsibility |
-|------|----------------|
-| `pentest_agent.py` | Agent setup, CLI, callbacks, prompts (263 lines) |
-| `tools.py` | All `@tool` functions, helpers, CVE loading (363 lines) |
-| `vsec/providers/__init__.py` | Provider factory: `create_model()`, `list_providers()` |
-| `vsec/providers/base.py` | `BaseModel`, `ModelInfo`, `register_provider()` decorator |
-| `vsec/providers/*.py` | Provider implementations (Anthropic, OpenAI, Groq, Ollama) |
 
 ## Key Patterns
 
@@ -211,24 +278,21 @@ provider = get_default_provider()
 model = create_model(provider="anthropic", model="claude-haiku-4-5")
 ```
 
-### Callback Handler
+### PentestAgent (vsec/api/agent.py)
 ```python
-class LiveProgressHandler(BaseCallbackHandler):
-    def __init__(self):
-        self.tool_start_time = None
-        self.step = 0
-    def on_tool_start(self, serialized, input_str, **kwargs): ...
-    def on_tool_end(self, output, **kwargs): ...
-```
+from vsec.api.agent import PentestAgent, get_agent
 
-### Message Loop
-```python
-messages = []
-while True:
-    user_input = input(...).strip()
-    if user_input.lower() in ("exit", "quit"): break
-    messages.append({"role": "user", "content": user_input})
-    result = agent.invoke({"messages": messages})
+agent = get_agent(model_name="claude-haiku-4-5")
+
+# Non-streaming
+result = agent.invoke(messages)
+print(result["response"])
+
+# With SSE callback
+callback = SSECallbackHandler()
+result = agent.invoke(messages, stream_callback=callback)
+for event in callback.events:
+    print(event)
 ```
 
 ## Environment Variables
@@ -266,3 +330,4 @@ These skills are installed globally and available for this project:
 2. **API keys required** — set environment variables before running
 3. **File paths** — use `os.path.abspath(__file__)` for relative paths
 4. **Agent tools** — always return strings, never raise
+5. **API is local-only by default** — use reverse proxy for production

@@ -1,7 +1,6 @@
 import os
 import sys
 import asyncio
-import datetime
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import (
@@ -16,12 +15,19 @@ load_dotenv()
 
 # ── Bootstrap VSec agent ───────────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from pentest_agent import agent, save_report, G, C, Y, R, M, W, DIM, B, RS
+from pentest_agent import agent, save_report, G, B, RS
+from message_utils import convert_langchain_messages, get_last_ai_response, build_langchain_messages
+from vsec.api.storage import init_db, get_db_path
+from vsec.api.repositories import get_session_repo
+
+# Initialize database on startup
+init_db()
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# ── Per-user sessions ──────────────────────────────────────────────────────────
-user_sessions: dict[int, list] = {}
+# ── Per-user sessions (chat_id -> session_id mapping) ─────────────────────────
+# Now persistent via SQLite!
+user_sessions: dict[int, str] = {}
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def split_message(text: str, limit: int = 4000) -> list[str]:
@@ -38,33 +44,60 @@ def split_message(text: str, limit: int = 4000) -> list[str]:
 
 
 async def run_agent(chat_id: int, user_input: str) -> str:
+    repo = get_session_repo()
+    
+    # Get or create session for this user
     if chat_id not in user_sessions:
-        user_sessions[chat_id] = []
-
-    user_sessions[chat_id].append({"role": "user", "content": user_input})
-
+        session = repo.create(model="claude-haiku-4-5")
+        user_sessions[chat_id] = session["id"]
+        session_id = session["id"]
+    else:
+        session_id = user_sessions[chat_id]
+    
+    # Get existing messages from database
+    session_data = repo.get(session_id)
+    if not session_data:
+        # Session was deleted, create new
+        session = repo.create(model="claude-haiku-4-5")
+        user_sessions[chat_id] = session["id"]
+        session_id = session["id"]
+        session_data = session
+    
+    # Add user message to database
+    repo.add_message(session_id, "user", user_input)
+    
+    # Re-fetch with updated messages
+    session_data = repo.get(session_id)
+    messages_dicts = session_data.get("messages", [])
+    
+    # Convert to LangChain format for agent
+    langchain_messages = build_langchain_messages(messages_dicts)
+    
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
         None,
         lambda: agent.invoke(
-            {"messages": user_sessions[chat_id]},
+            {"messages": langchain_messages},
             config={"callbacks": []},
         )
     )
-
-    ai_messages = [
-        m for m in result["messages"]
-        if hasattr(m, "type") and m.type == "ai"
-    ]
-    response = ai_messages[-1].content if ai_messages else "No response generated."
-
-    # Update history
-    user_sessions[chat_id] = [
-        {"role": "user" if m.type == "human" else "assistant", "content": m.content}
-        for m in result["messages"]
-        if hasattr(m, "type") and m.type in ("human", "ai")
-        and isinstance(m.content, str)
-    ]
+    
+    # Extract response properly using the utility function
+    response = get_last_ai_response(result["messages"])
+    
+    if not response:
+        response = "No response generated."
+    
+    # Convert all messages back to dict format and save to database
+    updated_messages = convert_langchain_messages(result["messages"])
+    
+    # Update session with full message history in database
+    for msg in updated_messages:
+        # Messages are already in the session from the loop above
+        pass
+    
+    # Update the session's messages field directly
+    repo.update(session_id, messages=updated_messages)
 
     return response
 
@@ -100,7 +133,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def new_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    user_sessions[chat_id] = []
+    repo = get_session_repo()
+    
+    # Delete old session if exists
+    if chat_id in user_sessions:
+        repo.delete(user_sessions[chat_id])
+    
+    # Create new session
+    session = repo.create(model="claude-haiku-4-5")
+    user_sessions[chat_id] = session["id"]
+    
     await update.message.reply_text(
         "🔄 Session cleared. New engagement started.\n"
         "Send me a target URL to begin."
@@ -151,6 +193,7 @@ if __name__ == "__main__":
 
     print(f"\n  {G}{B}VSec Telegram Bot starting...{RS}")
     print(f"  {G}✔{RS} Token loaded")
+    print(f"  {G}✔{RS} Database: {get_db_path()}")
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
