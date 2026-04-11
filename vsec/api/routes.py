@@ -128,7 +128,7 @@ async def event_generator(session_id: str, message_content: str):
     session = manager.get(session_id)
 
     if not session:
-        yield {"event": "error", "data": json.dumps({"error": "Session not found"})}
+        yield {"event": "error", "data": json.dumps({"type": "error", "error": "Session not found"})}
         return
 
     # Update status in database
@@ -148,26 +148,32 @@ async def event_generator(session_id: str, message_content: str):
         result = agent.invoke_with_retry(messages, stream_callback=callback)
 
         for event in callback.events:
-            yield {"event": event["type"], "data": json.dumps(event, default=str)}
+            event_type = event.get("type", "message")
+            yield {"event": event_type, "data": json.dumps(event, default=str)}
 
         if result.get("response"):
-            yield {"event": "message", "data": json.dumps({"content": result["response"]})}
+            yield {"event": "message", "data": json.dumps({"type": "message", "content": result["response"]})}
             # Add assistant message to database
             manager.add_message(session_id, "assistant", result["response"])
 
         if result.get("report_path"):
             manager.update(session_id, report_path=result["report_path"])
-            yield {"event": "done", "data": json.dumps({"report_path": result["report_path"]})}
+            yield {"event": "done", "data": json.dumps({"type": "done", "report_path": result["report_path"]})}
         else:
-            yield {"event": "done", "data": json.dumps({"complete": True})}
+            yield {"event": "done", "data": json.dumps({"type": "done", "complete": True})}
 
         # Update status in database
         manager.update(session_id, status="complete")
 
+        # Send [DONE] to properly close SSE stream
+        yield "data: [DONE]\n\n"
+
     except Exception as e:
         manager.update(session_id, status="error")
         error_msg = str(e)
-        yield {"event": "error", "data": json.dumps({"error": error_msg})}
+        yield {"event": "error", "data": json.dumps({"type": "error", "error": error_msg})}
+        # Send [DONE] even on error to close stream
+        yield "data: [DONE]\n\n"
 
 
 @app.post("/api/sessions/{session_id}/message")
